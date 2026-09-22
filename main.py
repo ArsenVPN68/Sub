@@ -12,6 +12,7 @@ import requests
 
 CONFIG_PATH = "public/config.json"
 GEOIP_DB_PATH = "GeoLite2-Country.mmdb"
+TEST_URL = "https://www.gstatic.com/generate_204"
 
 def ensure_geoip_db():
     if not os.path.exists(GEOIP_DB_PATH):
@@ -60,7 +61,6 @@ def get_flag_emoji(country_code):
     return chr(127397 + ord(country_code[0])) + chr(127397 + ord(country_code[1]))
 
 def extract_host_and_port(node_link):
-    """استخراج آدرس سرور و پورت جهت تست اتصالات"""
     try:
         if node_link.startswith("vmess://"):
             b64_data = node_link.replace("vmess://", "")
@@ -107,7 +107,6 @@ def rename_node(node_link, new_name):
         return node_link
 
 def decode_smart(content):
-    """دکود هوشمند چندلایه Base64"""
     for _ in range(3):
         content = content.strip()
         if any(p in content for p in ["vless://", "vmess://", "trojan://", "ss://"]):
@@ -149,21 +148,68 @@ def fetch_and_decode_subs(sub_urls):
 
     return raw_nodes
 
-def test_tcp_ping(node_link):
-    """تست سریع سالم بودن پورت و آی‌پای سرور (حذف کانفیگ‌های کاملاً خاموش)"""
-    host, port = extract_host_and_port(node_link)
-    if not host or port == 0:
+def test_real_ping(node_info):
+    """تست واقعی رد شدن دیتا و داشتن اینترنت سالم (Real Ping Test)"""
+    index, node_link = node_info
+    port = 12000 + (index % 500)
+
+    # تبدیل کانفیگ به ساختار قابل اجرای Xray
+    json_str = convert_node(node_link, "v2ray")
+    if not json_str:
         return node_link, False, 9999
 
     try:
-        start_time = time.time()
-        # تست اتصال مستقیم به IP و پورت سرور با تایم‌اوت ۲.۵ ثانیه
-        sock = socket.create_connection((host, port), timeout=2.5)
-        ping_time = (time.time() - start_time) * 1000
-        sock.close()
-        return node_link, True, ping_time
+        outbound_config = json.loads(json_str)
     except Exception:
         return node_link, False, 9999
+
+    config_filename = f"temp_xray_{port}.json"
+    full_config = {
+        "log": {"loglevel": "none"},
+        "inbounds": [{
+            "port": port,
+            "listen": "127.0.0.1",
+            "protocol": "socks",
+            "settings": {"udp": True}
+        }],
+        "outbounds": [outbound_config]
+    }
+
+    with open(config_filename, "w", encoding="utf-8") as f:
+        json.dump(full_config, f)
+
+    # اجرای هسته Xray برای تست واقعی
+    proc = subprocess.Popen(
+        ["./xray", "run", "-c", config_filename],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    )
+    time.sleep(1.2)
+
+    proxies = {
+        "http": f"socks5h://127.0.0.1:{port}",
+        "https": f"socks5h://127.0.0.1:{port}"
+    }
+
+    is_alive = False
+    ping_time = 9999
+
+    try:
+        t0 = time.time()
+        # تست با سرور گوگلی ۲۰۴ که در صورت عبور موفق دیتای اینترنت کد ۲۰۴ یا ۲۰۰ می‌دهد
+        res = requests.get(TEST_URL, proxies=proxies, timeout=3.5)
+        if res.status_code in [200, 204]:
+            is_alive = True
+            ping_time = (time.time() - t0) * 1000
+    except Exception:
+        pass
+    finally:
+        proc.terminate()
+        proc.wait()
+        if os.path.exists(config_filename):
+            os.remove(config_filename)
+
+    return node_link, is_alive, ping_time
 
 def convert_node(node_link, target_format):
     try:
@@ -243,22 +289,21 @@ def main():
         expire_days = prof_data.get("expire_days", 30)
 
         dynamic_nodes = fetch_and_decode_subs(sub_urls)
-        print(f"تعداد {len(dynamic_nodes)} سرور اولیه دریافت شد. در حال انجام تست پینگ...")
+        print(f"تعداد {len(dynamic_nodes)} سرور اولیه دریافت شد. در حال انجام تست سلامت واقعی (Real Ping)...")
 
         alive_nodes = []
         if dynamic_nodes:
-            # تست پینگ همزمان تا ۲۰ رشته برای سرعت بالا
-            with ThreadPoolExecutor(max_workers=20) as executor:
-                futures = [executor.submit(test_tcp_ping, node) for node in dynamic_nodes]
+            indexed_nodes = list(enumerate(dynamic_nodes))
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                futures = [executor.submit(test_real_ping, item) for item in indexed_nodes]
                 for future in as_completed(futures):
                     node, is_alive, ping = future.result()
                     if is_alive:
                         alive_nodes.append((node, ping))
 
-            # مرتب‌سازی بر اساس بهترین پینگ (کمترین زمان پاسخ‌گویی)
             alive_nodes.sort(key=lambda x: x[1])
             selected_dynamic = [x[0] for x in alive_nodes[:top_count]]
-            print(f"تعداد {len(selected_dynamic)} سرور سالم و آنلاین انتخاب شد.")
+            print(f"تعداد {len(selected_dynamic)} سرور با اینترنت واقعی و سالم انتخاب شد.")
         else:
             selected_dynamic = []
 
