@@ -11,7 +11,6 @@ from urllib.parse import quote, urlparse
 import requests
 
 CONFIG_PATH = "public/config.json"
-TEST_URL = "https://www.gstatic.com/generate_204"
 GEOIP_DB_PATH = "GeoLite2-Country.mmdb"
 
 def ensure_geoip_db():
@@ -60,22 +59,25 @@ def get_flag_emoji(country_code):
     country_code = country_code.upper()
     return chr(127397 + ord(country_code[0])) + chr(127397 + ord(country_code[1]))
 
-def extract_host_from_node(node_link):
+def extract_host_and_port(node_link):
+    """استخراج آدرس سرور و پورت جهت تست اتصالات"""
     try:
         if node_link.startswith("vmess://"):
             b64_data = node_link.replace("vmess://", "")
             b64_data += "=" * (-len(b64_data) % 4)
             decoded = base64.b64decode(b64_data).decode("utf-8", errors="ignore")
             vmess_json = json.loads(decoded)
-            return vmess_json.get("add", "")
+            return vmess_json.get("add", ""), int(vmess_json.get("port", 443))
         else:
             parsed = urlparse(node_link)
-            return parsed.hostname or ""
+            host = parsed.hostname or ""
+            port = parsed.port or (443 if parsed.scheme in ["vless", "trojan", "https"] else 80)
+            return host, int(port)
     except Exception:
-        return ""
+        return "", 0
 
 def get_country_flag(node_link, reader):
-    host = extract_host_from_node(node_link)
+    host, _ = extract_host_and_port(node_link)
     if not host or not reader:
         return "🌐"
     try:
@@ -105,7 +107,7 @@ def rename_node(node_link, new_name):
         return node_link
 
 def decode_smart(content):
-    """دکود چندلایه و رفع مشکل Padding در Base64"""
+    """دکود هوشمند چندلایه Base64"""
     for _ in range(3):
         content = content.strip()
         if any(p in content for p in ["vless://", "vmess://", "trojan://", "ss://"]):
@@ -124,11 +126,7 @@ def decode_smart(content):
 def fetch_and_decode_subs(sub_urls):
     raw_nodes = []
     pattern = re.compile(r"^(vless|vmess|trojan|ss|ssr|tuic|hysteria2)://", re.IGNORECASE)
-    # تنظیم User-Agent نرم‌افزارهای V2ray برای جلوگیری از مسدودسازی توسط پنل‌ها
-    headers = {
-        "User-Agent": "v2rayNG/1.8.5 (Linux; Android 12)"
-    }
-
+    headers = {"User-Agent": "v2rayNG/1.8.5 (Linux; Android 12)"}
     seen_nodes = set()
 
     for url in sub_urls:
@@ -150,6 +148,22 @@ def fetch_and_decode_subs(sub_urls):
             print(f"خطا در دریافت ساب {url}: {e}")
 
     return raw_nodes
+
+def test_tcp_ping(node_link):
+    """تست سریع سالم بودن پورت و آی‌پای سرور (حذف کانفیگ‌های کاملاً خاموش)"""
+    host, port = extract_host_and_port(node_link)
+    if not host or port == 0:
+        return node_link, False, 9999
+
+    try:
+        start_time = time.time()
+        # تست اتصال مستقیم به IP و پورت سرور با تایم‌اوت ۲.۵ ثانیه
+        sock = socket.create_connection((host, port), timeout=2.5)
+        ping_time = (time.time() - start_time) * 1000
+        sock.close()
+        return node_link, True, ping_time
+    except Exception:
+        return node_link, False, 9999
 
 def convert_node(node_link, target_format):
     try:
@@ -176,20 +190,17 @@ def generate_outputs(profile_name, final_nodes, total_gb, expire_days):
     info_node = create_info_node(total_gb, expire_days)
     all_nodes_with_info = [info_node] + final_nodes
 
-    # خروجی V2Ray Base64
     b64_out = base64.b64encode("\n".join(all_nodes_with_info).encode("utf-8")).decode("utf-8")
     with open(f"public/sub{suffix}.txt", "w", encoding="utf-8") as f:
         f.write(b64_out)
 
     joined_nodes = "|".join(final_nodes)
 
-    # خروجی Clash
     clash_yaml = convert_node(joined_nodes, "clash")
     if clash_yaml:
         with open(f"public/clash{suffix}.yaml", "w", encoding="utf-8") as f:
             f.write(clash_yaml)
 
-    # خروجی Sing-box
     singbox_json = convert_node(joined_nodes, "singbox")
     if singbox_json:
         with open(f"public/singbox{suffix}.json", "w", encoding="utf-8") as f:
@@ -232,10 +243,24 @@ def main():
         expire_days = prof_data.get("expire_days", 30)
 
         dynamic_nodes = fetch_and_decode_subs(sub_urls)
-        print(f"تعداد {len(dynamic_nodes)} سرور از لینک‌های ساب دریافت شد.")
+        print(f"تعداد {len(dynamic_nodes)} سرور اولیه دریافت شد. در حال انجام تست پینگ...")
 
-        # انتخاب حداکثر تعداد کانفیگ‌های درخواستی
-        selected_dynamic = dynamic_nodes[:top_count]
+        alive_nodes = []
+        if dynamic_nodes:
+            # تست پینگ همزمان تا ۲۰ رشته برای سرعت بالا
+            with ThreadPoolExecutor(max_workers=20) as executor:
+                futures = [executor.submit(test_tcp_ping, node) for node in dynamic_nodes]
+                for future in as_completed(futures):
+                    node, is_alive, ping = future.result()
+                    if is_alive:
+                        alive_nodes.append((node, ping))
+
+            # مرتب‌سازی بر اساس بهترین پینگ (کمترین زمان پاسخ‌گویی)
+            alive_nodes.sort(key=lambda x: x[1])
+            selected_dynamic = [x[0] for x in alive_nodes[:top_count]]
+            print(f"تعداد {len(selected_dynamic)} سرور سالم و آنلاین انتخاب شد.")
+        else:
+            selected_dynamic = []
 
         renamed_dynamic = []
         for idx, node in enumerate(selected_dynamic, start=1):
