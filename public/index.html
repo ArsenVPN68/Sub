@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>پنل مدیریت هوشمند و چندپروفایله Xray</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <style>
+        :root { --bg: #0f172a; --card: #1e293b; --accent: #0284c7; --text: #f8fafc; }
+        body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 20px; direction: rtl; }
+        .container { max-width: 850px; margin: auto; }
+        .card { background: var(--card); border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #334155; }
+        h1, h3 { color: #38bdf8; margin-top: 0; }
+        label { display: block; margin-top: 12px; margin-bottom: 6px; color: #94a3b8; font-size: 0.9em; }
+        input, textarea, select { width: 100%; background: #0f172a; border: 1px solid #334155; color: #38bdf8; border-radius: 8px; padding: 10px; box-sizing: border-box; font-family: monospace; }
+        textarea { height: 110px; resize: vertical; }
+        .btn { background: var(--accent); color: white; border: none; padding: 10px 16px; border-radius: 8px; cursor: pointer; font-weight: bold; margin-top: 10px; }
+        .btn:hover { opacity: 0.9; }
+        .btn-run { background: #16a34a; }
+        .btn-danger { background: #dc2626; }
+        .sub-row { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
+        .sub-box { flex: 1; background: #0f172a; border: 1px solid #334155; padding: 10px; border-radius: 6px; word-break: break-all; color: #4ade80; font-family: monospace; font-size: 0.85em; }
+        .status { margin-top: 15px; font-weight: bold; color: #eab308; }
+        .profile-bar { display: flex; gap: 10px; align-items: center; background: #0f172a; padding: 12px; border-radius: 8px; border: 1px solid #334155; }
+        .grid-2 { display: flex; gap: 15px; }
+        .grid-2 > div { flex: 1; }
+        .qr-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); justify-content: center; align-items: center; z-index: 1000; }
+        .qr-box { background: #1e293b; padding: 20px; border-radius: 12px; text-align: center; }
+        .qr-box #qrcode { background: white; padding: 10px; border-radius: 8px; display: inline-block; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>⚡ پنل مدیریت هوشمند و چندپروفایله Xray V2.0</h1>
+
+        <div class="card">
+            <h3>👤 مدیریت پروفایل‌ها (کاربران)</h3>
+            <div class="profile-bar">
+                <div style="flex: 2;">
+                    <label style="margin: 0 0 4px 0;">انتخاب پروفایل فعلی:</label>
+                    <select id="profile-select" onchange="switchProfile()">
+                        <option value="default">پیش‌فرض (Default)</option>
+                    </select>
+                </div>
+                <div style="flex: 2;">
+                    <label style="margin: 0 0 4px 0;">ایجاد پروفایل جدید (نام لاتین):</label>
+                    <input type="text" id="new-profile-name" placeholder="مثلا: nafas">
+                </div>
+                <div style="flex: 1; margin-top: 18px;">
+                    <button class="btn" style="margin:0; width:100%;" onclick="createNewProfile()">➕ ساخت</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>🔗 لینک‌های اختصاصی پروفایل انتخاب‌شده</h3>
+            
+            <label>فرمت V2Ray / v2rayNG / Hiddify:</label>
+            <div class="sub-row">
+                <div class="sub-box" id="url-v2ray">...</div>
+                <button class="btn" onclick="copyUrl('url-v2ray')">📋 کپی</button>
+                <button class="btn" onclick="showQR('url-v2ray')">📱 QR</button>
+            </div>
+
+            <label>فرمت Clash Meta / FlClash (YAML):</label>
+            <div class="sub-row">
+                <div class="sub-box" id="url-clash">...</div>
+                <button class="btn" onclick="copyUrl('url-clash')">📋 کپی</button>
+                <button class="btn" onclick="showQR('url-clash')">📱 QR</button>
+            </div>
+
+            <label>فرمت Sing-box (JSON):</label>
+            <div class="sub-row">
+                <div class="sub-box" id="url-singbox">...</div>
+                <button class="btn" onclick="copyUrl('url-singbox')">📋 کپی</button>
+                <button class="btn" onclick="showQR('url-singbox')">📱 QR</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>🔑 اطلاعات اتصال به GitHub API</h3>
+            <label>توکن شخصی گیت‌هاب (Personal Access Token):</label>
+            <input type="password" id="gh-token" placeholder="ghp_xxxxxxxxxxxx">
+            <label>نام کاربری گیت‌هاب (Username):</label>
+            <input type="text" id="gh-owner" placeholder="مثال: myaccount">
+            <label>نام ریپازیتوری (Repository):</label>
+            <input type="text" id="gh-repo" placeholder="مثال: Testmest">
+            <button class="btn" onclick="saveCredentials()">ذخیره کلیدها در مرورگر</button>
+        </div>
+
+        <div class="card">
+            <h3>⚙️ تنظیمات پروفایل <span id="current-profile-title" style="color:#38bdf8;">default</span></h3>
+            
+            <label>🏷️ نام دلخواه برندینگ برای این کاربر:</label>
+            <input type="text" id="brand-name" placeholder="مثال: 𝔸𝕣𝕤𝕖𝕟VPℕ𓄂𓆃 ❻❽">
+
+            <div class="grid-2">
+                <div>
+                    <label>📊 حجم کل اشتراک (گیگابایت):</label>
+                    <input type="number" id="total-gb" value="50">
+                </div>
+                <div>
+                    <label>⏳ مدت اعتبار (روز):</label>
+                    <input type="number" id="expire-days" value="30">
+                </div>
+            </div>
+
+            <label>🔒 سرورهای شخصی این کاربر (دست‌نخورده):</label>
+            <textarea id="personal-nodes" placeholder="vless://...\nvmess://..."></textarea>
+
+            <label>🌐 لینک‌های سابسکریپشن عمومی این کاربر:</label>
+            <textarea id="sub-urls" placeholder="https://site.com/sub1\nhttps://site.com/sub2"></textarea>
+
+            <div class="grid-2">
+                <div>
+                    <label>🔢 تعداد سرورهای عمومی برتر:</label>
+                    <input type="number" id="top-count" value="20" min="5" max="100">
+                </div>
+            </div>
+
+            <div style="margin-top: 15px;">
+                <button class="btn" onclick="updateConfigOnGithub()">💾 ذخیره این پروفایل</button>
+                <button class="btn btn-run" onclick="triggerWorkflow()">🚀 اجرای فوری تست سرعت</button>
+                <button class="btn btn-danger" id="delete-btn" onclick="deleteCurrentProfile()">🗑️ حذف این پروفایل</button>
+            </div>
+
+            <div class="status" id="status-msg"></div>
+        </div>
+    </div>
+
+    <div class="qr-modal" id="qrModal" onclick="closeQR()">
+        <div class="qr-box" onclick="event.stopPropagation()">
+            <div id="qrcode"></div>
+            <button class="btn btn-danger" onclick="closeQR()">بستن</button>
+        </div>
+    </div>
+
+    <script>
+        let fullConfig = { profiles: { default: { brand_name: "𝔸𝕣𝕤𝕖𝕟VPℕ𓄂𓆃 ❻❽", personal: [], subs: [], top_count: 20, total_gb: 50, expire_days: 30 } } };
+        let activeProfile = "default";
+
+        document.getElementById('gh-token').value = localStorage.getItem('gh_token') || '';
+        document.getElementById('gh-owner').value = localStorage.getItem('gh_owner') || '';
+        document.getElementById('gh-repo').value = localStorage.getItem('gh_repo') || '';
+
+        function saveCredentials() {
+            localStorage.setItem('gh_token', document.getElementById('gh-token').value.trim());
+            localStorage.setItem('gh_owner', document.getElementById('gh-owner').value.trim());
+            localStorage.setItem('gh_repo', document.getElementById('gh-repo').value.trim());
+            alert('اطلاعات دسترسی ذخیره شد.');
+        }
+
+        function updateUrls() {
+            const baseUrl = window.location.origin + window.location.pathname.replace('index.html', '').replace(/\/$/, '') + '/';
+            const suffix = activeProfile === "default" ? "" : "_" + activeProfile;
+            document.getElementById('url-v2ray').innerText = baseUrl + 'sub' + suffix + '.txt';
+            document.getElementById('url-clash').innerText = baseUrl + 'clash' + suffix + '.yaml';
+            document.getElementById('url-singbox').innerText = baseUrl + 'singbox' + suffix + '.json';
+            document.getElementById('current-profile-title').innerText = activeProfile;
+            document.getElementById('delete-btn').style.display = activeProfile === "default" ? "none" : "inline-block";
+        }
+
+        function copyUrl(id) {
+            const text = document.getElementById(id).innerText;
+            navigator.clipboard.writeText(text);
+            alert('لینک کپی شد!');
+        }
+
+        function showQR(id) {
+            const text = document.getElementById(id).innerText;
+            const qrContainer = document.getElementById('qrcode');
+            qrContainer.innerHTML = '';
+            new QRCode(qrContainer, { text: text, width: 220, height: 220 });
+            document.getElementById('qrModal').style.display = 'flex';
+        }
+
+        function closeQR() {
+            document.getElementById('qrModal').style.display = 'none';
+        }
+
+        function renderProfileSelect() {
+            const select = document.getElementById('profile-select');
+            select.innerHTML = '';
+            Object.keys(fullConfig.profiles).forEach(p => {
+                const opt = document.createElement('option');
+                opt.value = p;
+                opt.innerText = p === 'default' ? 'پیش‌فرض (default)' : p;
+                if (p === activeProfile) opt.selected = true;
+                select.appendChild(opt);
+            });
+        }
+
+        function loadActiveProfileData() {
+            const pData = fullConfig.profiles[activeProfile] || { brand_name: '', personal: [], subs: [], top_count: 20, total_gb: 50, expire_days: 30 };
+            document.getElementById('brand-name').value = pData.brand_name || '';
+            document.getElementById('total-gb').value = pData.total_gb || 50;
+            document.getElementById('expire-days').value = pData.expire_days || 30;
+            document.getElementById('personal-nodes').value = (pData.personal || []).join('\n');
+            document.getElementById('sub-urls').value = (pData.subs || []).join('\n');
+            document.getElementById('top-count').value = pData.top_count || 20;
+            updateUrls();
+        }
+
+        function switchProfile() {
+            activeProfile = document.getElementById('profile-select').value;
+            loadActiveProfileData();
+        }
+
+        function createNewProfile() {
+            const nameInput = document.getElementById('new-profile-name');
+            const name = nameInput.value.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (!name) return alert('لطفا یک نام لاتین ساده وارد کنید');
+            if (fullConfig.profiles[name]) return alert('این پروفایل وجود دارد.');
+
+            fullConfig.profiles[name] = {
+                brand_name: "𝔸𝕣𝕤𝕖𝕟VPℕ𓄂𓆃 - " + name,
+                total_gb: 50,
+                expire_days: 30,
+                personal: [],
+                subs: [],
+                top_count: 20
+            };
+            activeProfile = name;
+            nameInput.value = '';
+            renderProfileSelect();
+            loadActiveProfileData();
+        }
+
+        async function deleteCurrentProfile() {
+            if (activeProfile === "default") return alert('پروفایل پیش‌فرض قابل حذف نیست.');
+            if (!confirm(`آیا از حذف کامل پروفایل "${activeProfile}" اطمینان دارید؟`)) return;
+
+            delete fullConfig.profiles[activeProfile];
+            const deletedProf = activeProfile;
+            activeProfile = "default";
+            renderProfileSelect();
+            loadActiveProfileData();
+            await updateConfigOnGithub(`Delete profile ${deletedProf}`);
+            triggerWorkflow();
+        }
+
+        fetch('config.json?t=' + Date.now())
+            .then(r => r.json())
+            .then(data => {
+                if (data.profiles) fullConfig = data;
+                renderProfileSelect();
+                loadActiveProfileData();
+            }).catch(() => {
+                renderProfileSelect();
+                loadActiveProfileData();
+            });
+
+        async function updateConfigOnGithub(customMsg) {
+            const token = localStorage.getItem('gh_token');
+            const owner = localStorage.getItem('gh_owner');
+            const repo = localStorage.getItem('gh_repo');
+            const status = document.getElementById('status-msg');
+
+            if (!token || !owner || !repo) return alert('لطفا مشخصات گیت‌هاب را تکمیل کنید.');
+
+            status.innerText = "در حال ذخیره‌سازی...";
+
+            if (fullConfig.profiles[activeProfile]) {
+                fullConfig.profiles[activeProfile] = {
+                    brand_name: document.getElementById('brand-name').value.trim() || '𝔸𝕣𝕤𝕖𝕟VPℕ𓄂𓆃 ❻❽',
+                    total_gb: parseInt(document.getElementById('total-gb').value) || 50,
+                    expire_days: parseInt(document.getElementById('expire-days').value) || 30,
+                    personal: document.getElementById('personal-nodes').value.split('\n').map(s=>s.trim()).filter(Boolean),
+                    subs: document.getElementById('sub-urls').value.split('\n').map(s=>s.trim()).filter(Boolean),
+                    top_count: parseInt(document.getElementById('top-count').value) || 20
+                };
+            }
+
+            let sha = "";
+            try {
+                const getFile = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/public/config.json`, {
+                    headers: { 'Authorization': `token ${token}` }
+                });
+                if (getFile.ok) {
+                    const fileData = await getFile.json();
+                    sha = fileData.sha;
+                }
+            } catch(e) {}
+
+            const jsonString = JSON.stringify(fullConfig, null, 2);
+            const encodedContent = btoa(unescape(encodeURIComponent(jsonString)));
+
+            try {
+                const msg = customMsg || `Update profile (${activeProfile})`;
+                const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/public/config.json`, {
+                    method: 'PUT',
+                    headers: { 'Authorization': `token ${token}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: msg, content: encodedContent, sha: sha })
+                });
+
+                if (res.ok) status.innerText = `✅ تغییرات ذخیره شد!`;
+                else status.innerText = "❌ خطا در ذخیره تنظیمات.";
+            } catch (e) {
+                status.innerText = "❌ خطا: " + e.message;
+            }
+        }
+
+        async function triggerWorkflow() {
+            const token = localStorage.getItem('gh_token');
+            const owner = localStorage.getItem('gh_owner');
+            const repo = localStorage.getItem('gh_repo');
+            const status = document.getElementById('status-msg');
+
+            if (!token || !owner || !repo) return alert('مشخصات اتصال کامل نیست.');
+
+            status.innerText = "در حال ارسال دستور بروزرسانی...";
+            try {
+                const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/actions/workflows/main.yml/dispatches`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `token ${token}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ref: 'main' })
+                });
+                if (res.status === 204) status.innerText = "🚀 بروزرسانی شروع شد! تا ۳ الی ۵ دقیقه دیگر آپدیت می‌شود.";
+                else status.innerText = "❌ خطا در اجرای تست فوری.";
+            } catch (e) {
+                status.innerText = "❌ خطا: " + e.message;
+            }
+        }
+    </script>
+</body>
+</html>
