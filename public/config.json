@@ -4,7 +4,9 @@
       "brand_name": "𝔸𝕣𝕤𝕖𝕟VPℕ𓄂𓆃 ❻❽",
       "total_gb": 50,
       "expire_days": 30,
-      "personal": [],
+      "personal": [
+        "vless://9ee1d281-9d0b-308c-a02e-bf3503bca473@newyork-arsen68-production-8f43.up.railway.app:443?path=%2Fws%2F9ee1d281-9d0b-308c-a02e-bf3503bca473&security=tls&alpn=http%2F1.1&encryption=none&insecure=0&host=newyork-arsen68-production-8f43.up.railway.app&fp=chrome&type=ws&allowInsecure=0&sni=newyork-arsen68-production-8f43.up.railway.app#Gateway-%D9%84%DB%8C%D9%86%DA%A9%20%D9%BE%DB%8C%D8%B4%E2%80%8C%D9%81%D8%B1%D8%B6%EF%BF%BD%EF%BF%BD%EF%BF%BD%E2%84%99%E2%84%95%F0%93%86%83%20_xhttp_s"
+      ],
       "subs": [
         "https://id2ux3yg5rc6ihgeimuirf-ctyo.panel4-4.workers.dev/cQmjF-KZCRSoeACH/sub/raw?app=xray#%F0%9F%92%A6%20BPB%20Raw"
       ],
