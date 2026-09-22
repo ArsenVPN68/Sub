@@ -14,7 +14,6 @@ CONFIG_PATH = "public/config.json"
 TEST_URL = "https://www.gstatic.com/generate_204"
 GEOIP_DB_PATH = "GeoLite2-Country.mmdb"
 
-# بررسی و دانلود دیتابیس GeoIP لوکال در صورت عدم وجود
 def ensure_geoip_db():
     if not os.path.exists(GEOIP_DB_PATH):
         print("در حال دانلود دیتابیس GeoIP...")
@@ -50,7 +49,7 @@ def load_config():
                 "expire_days": 30,
                 "personal": [],
                 "subs": [],
-                "top_count": 20,
+                "top_count": 50,
             }
         }
     }
@@ -105,39 +104,50 @@ def rename_node(node_link, new_name):
     except Exception:
         return node_link
 
+def decode_smart(content):
+    """دکود چندلایه و رفع مشکل Padding در Base64"""
+    for _ in range(3):
+        content = content.strip()
+        if any(p in content for p in ["vless://", "vmess://", "trojan://", "ss://"]):
+            break
+        try:
+            missing_padding = len(content) % 4
+            if missing_padding:
+                content += '=' * (4 - missing_padding)
+            decoded = base64.b64decode(content).decode("utf-8", errors="ignore")
+            if decoded:
+                content = decoded
+        except Exception:
+            break
+    return content
+
 def fetch_and_decode_subs(sub_urls):
     raw_nodes = []
     pattern = re.compile(r"^(vless|vmess|trojan|ss|ssr|tuic|hysteria2)://", re.IGNORECASE)
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    # تنظیم User-Agent نرم‌افزارهای V2ray برای جلوگیری از مسدودسازی توسط پنل‌ها
+    headers = {
+        "User-Agent": "v2rayNG/1.8.5 (Linux; Android 12)"
+    }
 
-    seen_hosts = set()
+    seen_nodes = set()
 
     for url in sub_urls:
         url = url.strip()
         if not url:
             continue
         try:
-            r = requests.get(url, headers=headers, timeout=12)
+            r = requests.get(url, headers=headers, timeout=15)
             content = r.text.strip()
-            try:
-                decoded = base64.b64decode(content).decode("utf-8", errors="ignore")
-                if any(p in decoded for p in ["vless://", "vmess://", "trojan://", "ss://"]):
-                    content = decoded
-            except Exception:
-                pass
+            content = decode_smart(content)
 
             for line in content.splitlines():
                 line = line.strip()
                 if pattern.match(line):
-                    host = extract_host_from_node(line)
-                    # حذف تکراری‌ها بر اساس Host/IP
-                    if host and host in seen_hosts:
-                        continue
-                    if host:
-                        seen_hosts.add(host)
-                    raw_nodes.append(line)
+                    if line not in seen_nodes:
+                        seen_nodes.add(line)
+                        raw_nodes.append(line)
         except Exception as e:
-            print(f"Error fetching sub {url}: {e}")
+            print(f"خطا در دریافت ساب {url}: {e}")
 
     return raw_nodes
 
@@ -154,63 +164,6 @@ def convert_node(node_link, target_format):
         return res.decode("utf-8")
     except Exception:
         return None
-
-def test_single_node(node_info):
-    index, node_link = node_info
-    port = 10800 + (index % 1000)
-
-    json_str = convert_node(node_link, "v2ray")
-    if not json_str:
-        return node_link, 0.1
-
-    try:
-        outbound_config = json.loads(json_str)
-    except Exception:
-        return node_link, 0.1
-
-    config_filename = f"temp_xray_{port}.json"
-    full_config = {
-        "log": {"loglevel": "none"},
-        "inbounds": [{
-            "port": port,
-            "listen": "127.0.0.1",
-            "protocol": "socks",
-            "settings": {"udp": True}
-        }],
-        "outbounds": [outbound_config]
-    }
-
-    with open(config_filename, "w", encoding="utf-8") as f:
-        json.dump(full_config, f)
-
-    proc = subprocess.Popen(
-        ["./xray", "run", "-c", config_filename],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL
-    )
-    time.sleep(1.0)
-
-    proxies = {
-        "http": f"socks5h://127.0.0.1:{port}",
-        "https": f"socks5h://127.0.0.1:{port}"
-    }
-    score = 0.1
-
-    try:
-        t0 = time.time()
-        res = requests.get(TEST_URL, proxies=proxies, timeout=4)
-        if res.status_code in [200, 204]:
-            latency = time.time() - t0
-            score = max(1.0, 10.0 - latency)
-    except Exception:
-        pass
-    finally:
-        proc.terminate()
-        proc.wait()
-        if os.path.exists(config_filename):
-            os.remove(config_filename)
-
-    return node_link, score
 
 def create_info_node(total_gb, expire_days):
     info_title = f"📊 Traffic: {total_gb} GB | ⏳ Remaining: {expire_days} Days"
@@ -230,7 +183,7 @@ def generate_outputs(profile_name, final_nodes, total_gb, expire_days):
 
     joined_nodes = "|".join(final_nodes)
 
-    # خروجی Clash با حالت Auto-Select
+    # خروجی Clash
     clash_yaml = convert_node(joined_nodes, "clash")
     if clash_yaml:
         with open(f"public/clash{suffix}.yaml", "w", encoding="utf-8") as f:
@@ -273,32 +226,19 @@ def main():
         print(f"\n--- در حال پردازش پروفایل: {prof_name} ---")
         personal_nodes = prof_data.get("personal", [])
         sub_urls = prof_data.get("subs", [])
-        top_count = prof_data.get("top_count", 20)
+        top_count = prof_data.get("top_count", 50)
         brand_name = prof_data.get("brand_name", "𝔸𝕣𝕤𝕖𝕟VPℕ𓄂𓆃 ❻❽")
         total_gb = prof_data.get("total_gb", 50)
         expire_days = prof_data.get("expire_days", 30)
 
         dynamic_nodes = fetch_and_decode_subs(sub_urls)
-        print(f"تعداد {len(dynamic_nodes)} سرور یکتا دریافت شد.")
+        print(f"تعداد {len(dynamic_nodes)} سرور از لینک‌های ساب دریافت شد.")
 
-        if dynamic_nodes:
-            indexed_nodes = list(enumerate(dynamic_nodes))
-            tested_results = []
-
-            with ThreadPoolExecutor(max_workers=12) as executor:
-                futures = [executor.submit(test_single_node, item) for item in indexed_nodes]
-                for future in as_completed(futures):
-                    link, score = future.result()
-                    if link and score > 0.1:
-                        tested_results.append((link, score))
-
-            tested_results.sort(key=lambda x: x[1], reverse=True)
-            best_dynamic = [x[0] for x in tested_results[:top_count]]
-        else:
-            best_dynamic = []
+        # انتخاب حداکثر تعداد کانفیگ‌های درخواستی
+        selected_dynamic = dynamic_nodes[:top_count]
 
         renamed_dynamic = []
-        for idx, node in enumerate(best_dynamic, start=1):
+        for idx, node in enumerate(selected_dynamic, start=1):
             flag = get_country_flag(node, reader)
             custom_title = f"{flag} {brand_name} - {idx:02d}"
             renamed_dynamic.append(rename_node(node, custom_title))
